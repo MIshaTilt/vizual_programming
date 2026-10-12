@@ -6,15 +6,6 @@ using Unity.Transforms;
 
 namespace VisualProgramming.Capsules
 {
-    /// <summary>
-    /// Система спавна волн капсул (слайд 10 методички).
-    /// Находится в пользовательской группе WaveSpawnSystemGroup.
-    /// Использует:
-    /// 1. EntityCommandBuffer для инстанцирования сущностей (слайд 7).
-    /// 2. Singleton-компонент PrefabHolder для доступа к префабам (слайд 8).
-    /// 3. BlobAssetReference через WavesHolder для чтения структуры волн (слайды 4, 5).
-    /// 4. Unity.Mathematics.Random для процедурного позиционирования и рандомизации характеристик (слайд 7).
-    /// </summary>
     [UpdateInGroup(typeof(WaveSpawnSystemGroup))]
     [BurstCompile]
     public partial struct WaveSpawnerSystem : ISystem
@@ -37,7 +28,6 @@ namespace VisualProgramming.Capsules
                 return;
             }
 
-            // Обращение к данным Blob через GetSingleton (слайд 5)
             ref var wavesBlob = ref SystemAPI.GetSingleton<WavesHolder>().WavesReference.Value;
             if (spawnerState.CurrentWaveIndex >= wavesBlob.Waves.Length)
             {
@@ -47,7 +37,6 @@ namespace VisualProgramming.Capsules
 
             ref var currentWave = ref wavesBlob.Waves[spawnerState.CurrentWaveIndex];
             
-            // Поскольку WaveSpawnSystemGroup тикает 1 раз в секунду, прибавляем шаг 1 сек
             spawnerState.WaveTimer += 1.0f;
 
             if (spawnerState.WaveTimer < currentWave.WaitTimeBeforeWave)
@@ -55,16 +44,12 @@ namespace VisualProgramming.Capsules
                 return;
             }
 
-            // Время волны наступило — сбрасываем таймер
             spawnerState.WaveTimer = 0f;
 
-            // Обращение к держателю префабов через GetSingleton (слайд 8)
             var prefabHolder = SystemAPI.GetSingleton<PrefabHolder>();
 
-            // Получаем генератор случайных чисел RandomHolder (слайд 7)
             ref var randomHolder = ref SystemAPI.GetSingletonRW<RandomHolder>().ValueRW;
 
-            // Создание EntityCommandBuffer с аллокатором Temp (слайд 7)
             EntityCommandBuffer ecb = new EntityCommandBuffer(Allocator.Temp);
 
             ref var enemiesArray = ref currentWave.Enemies;
@@ -96,7 +81,6 @@ namespace VisualProgramming.Capsules
                         break;
                 }
 
-                // Запасной вариант, если конкретный префаб не был назначен
                 if (prefabToSpawn == Entity.Null)
                 {
                     if (prefabHolder.BalancedCapsulePrefab != Entity.Null)
@@ -111,10 +95,8 @@ namespace VisualProgramming.Capsules
 
                 for (int count = 0; count < enemyGroup.Amount; count++)
                 {
-                    // Запись в EntityCommandBuffer команды создания Entity (слайд 7)
                     Entity spawned = ecb.Instantiate(prefabToSpawn);
 
-                    // Использование Unity.Mathematics.Random для случайного угла и радиуса спавна (п. 3)
                     float angle = randomHolder.rng.NextFloat(0f, math.PI * 2f);
                     float distance = randomHolder.rng.NextFloat(9f, 13f);
                     float3 spawnPosition = new float3(
@@ -125,7 +107,6 @@ namespace VisualProgramming.Capsules
 
                     ecb.SetComponent(spawned, LocalTransform.FromPositionRotation(spawnPosition, quaternion.identity));
 
-                    // Случайный разброс характеристик (скорость и выносливость) через Random (п. 3)
                     float speedMultiplier = randomHolder.rng.NextFloat(0.85f, 1.25f);
                     ecb.SetComponent(spawned, new MoveData
                     {
@@ -142,24 +123,20 @@ namespace VisualProgramming.Capsules
                         RecoveryRate = 18f
                     });
 
-                    // Задаем время жизни сущности (35 секунд)
                     ecb.AddComponent(spawned, new LifetimeData
                     {
                         RemainingTime = 35f
                     });
 
-                    // Помечаем тегом рантайм-капсулы
                     ecb.AddComponent(spawned, new SpawnedCapsuleTag());
 
                     spawnerState.TotalSpawned++;
                 }
             }
 
-            // Воспроизведение всех накопленных команд и освобождение памяти (слайд 7)
             ecb.Playback(state.EntityManager);
             ecb.Dispose();
 
-            // Переход к следующей волне
             spawnerState.CurrentWaveIndex++;
             if (spawnerState.CurrentWaveIndex >= wavesBlob.Waves.Length)
             {

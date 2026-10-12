@@ -5,11 +5,6 @@ using Unity.Mathematics;
 
 namespace VisualProgramming.Capsules
 {
-    /// <summary>
-    /// Авторинг-компонент цели для запекания в Entity.
-    /// Поддерживает патрулирование по точкам через DynamicBuffer (слайды 5, 6)
-    /// или круговое движение вокруг центра.
-    /// </summary>
     [DisallowMultipleComponent]
     public class TargetAuthoring : MonoBehaviour
     {
@@ -37,13 +32,10 @@ namespace VisualProgramming.Capsules
             {
                 Entity entity = GetEntity(TransformUsageFlags.Dynamic);
 
-                // Тег цели для системы позиционирования (слайд 9 методички 1)
                 AddComponent(entity, new TargetTag());
 
-                // Патрулирование через DynamicBuffer (слайды 5, 6 методички 2)
                 if (authoring.EnableWaypointPatrol)
                 {
-                    // Создаем DynamicBuffer на Entity методом AddBuffer (слайд 5)
                     DynamicBuffer<WaypointElement> buffer = AddBuffer<WaypointElement>(entity);
 
                     if (authoring.Waypoints != null && authoring.Waypoints.Count > 0)
@@ -58,7 +50,6 @@ namespace VisualProgramming.Capsules
                     }
                     else
                     {
-                        // Если точки не заданы вручную, генерируем стандартный маршрут по 4 квадрантам
                         buffer.Add(new WaypointElement { Position = new float3(6f, 0.5f, 6f) });
                         buffer.Add(new WaypointElement { Position = new float3(6f, 0.5f, -6f) });
                         buffer.Add(new WaypointElement { Position = new float3(-6f, 0.5f, -6f) });

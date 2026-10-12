@@ -5,9 +5,6 @@ using Unity.Transforms;
 
 namespace VisualProgramming.Capsules
 {
-    /// <summary>
-    /// Система, вращающая цель по кругу вокруг центральной точки.
-    /// </summary>
     [BurstCompile]
     public partial struct TargetMovementSystem : ISystem
     {
@@ -20,7 +17,6 @@ namespace VisualProgramming.Capsules
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
-            // Используем SystemAPI.Time.ElapsedTime вместо Time.time (слайд 6)
             double elapsedTime = SystemAPI.Time.ElapsedTime;
 
             foreach (var (transform, movement) in 

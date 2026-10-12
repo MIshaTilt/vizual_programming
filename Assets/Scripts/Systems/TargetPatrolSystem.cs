@@ -5,11 +5,6 @@ using Unity.Transforms;
 
 namespace VisualProgramming.Capsules
 {
-    /// <summary>
-    /// Система патрулирования цели по путевым точкам из DynamicBuffer (слайды 5, 6 методички).
-    /// Демонстрирует работу с DynamicBuffer<WaypointElement> напрямую в запросе SystemAPI.Query
-    /// без использования оберток RefRO / RefRW.
-    /// </summary>
     [BurstCompile]
     public partial struct TargetPatrolSystem : ISystem
     {
@@ -24,7 +19,6 @@ namespace VisualProgramming.Capsules
         {
             float deltaTime = SystemAPI.Time.DeltaTime;
 
-            // Слайд 6: DynamicBuffer перечисляется напрямую без RefRO/RefRW
             foreach (var (transform, patrol, waypoints) in 
                 SystemAPI.Query<RefRW<LocalTransform>, RefRW<WaypointPatrolData>, DynamicBuffer<WaypointElement>>())
             {
@@ -42,14 +36,13 @@ namespace VisualProgramming.Capsules
 
                 float3 currentPos = transform.ValueRO.Position;
                 float3 targetWaypointPos = waypoints[currentIndex].Position;
-                targetWaypointPos.y = currentPos.y; // Движение на высоте цели
+                targetWaypointPos.y = currentPos.y;
 
                 float3 direction = targetWaypointPos - currentPos;
                 float distance = math.length(direction);
 
                 if (distance <= patrol.ValueRO.ArriveDistance)
                 {
-                    // Достигли текущей путевой точки — переключаемся на следующую (циклический обход)
                     patrol.ValueRW.CurrentWaypointIndex = (currentIndex + 1) % waypoints.Length;
                 }
                 else

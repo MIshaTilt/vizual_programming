@@ -3,10 +3,6 @@ using Unity.Entities;
 
 namespace VisualProgramming.Capsules
 {
-    /// <summary>
-    /// Авторинг-компонент для хранения заготовок префабов капсул (слайд 8 методички).
-    /// Запекает Entity-ссылки на префабы в Singleton-компонент PrefabHolder.
-    /// </summary>
     [DisallowMultipleComponent]
     public class PrefabHolderAuthoring : MonoBehaviour
     {
@@ -24,7 +20,6 @@ namespace VisualProgramming.Capsules
         {
             public override void Bake(PrefabHolderAuthoring authoring)
             {
-                // Для синглтон-контейнера трансформ не требуется
                 Entity entity = GetEntity(TransformUsageFlags.None);
 
                 AddComponent(entity, new PrefabHolder
