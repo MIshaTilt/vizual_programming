@@ -8,18 +8,24 @@ namespace VisualProgramming.Capsules
 {
     /// <summary>
     /// Параллельная система удаления Entity через EntityCommandBuffer.ParallelWriter
-    /// (задание 2 + оптимизация под Jobs из задания 3, слайды 5–6).
+    /// (задание 2 + оптимизация под Jobs из задания 3, слайды 5–7).
     /// </summary>
     [UpdateAfter(typeof(HealthSystem))]
     [BurstCompile]
     public partial struct CapsuleCatchAndDestroySystem : ISystem
     {
+        private EntityQuery _lifetimeQuery;
         private EntityQuery _deadQuery;
 
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
             state.RequireForUpdate<TargetTag>();
+
+            _lifetimeQuery = SystemAPI.QueryBuilder()
+                .WithAll<LocalTransform>()
+                .WithAllRW<LifetimeData>()
+                .Build();
 
             _deadQuery = SystemAPI.QueryBuilder()
                 .WithAll<HealthData, DeadTag>()
@@ -29,35 +35,46 @@ namespace VisualProgramming.Capsules
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
+            // Если на сцене нет ни живых капсул со временем жизни, ни мертвых капсул — ничего не делаем
+            if (_lifetimeQuery.IsEmptyIgnoreFilter && _deadQuery.IsEmptyIgnoreFilter)
+            {
+                return;
+            }
+
             if (!SystemAPI.TryGetSingletonEntity<TargetTag>(out Entity targetEntity))
             {
                 return;
             }
 
+            // Передаем ComponentLookup только для чтения внутрь джобы (слайды 6, 7),
+            // не вызывая чтение на главном потоке до завершения TargetPatrolJob
             ComponentLookup<LocalTransform> transformLookup = SystemAPI.GetComponentLookup<LocalTransform>(true);
-            if (!transformLookup.TryGetComponent(targetEntity, out LocalTransform targetTransform))
-            {
-                return;
-            }
 
             EntityCommandBuffer ecb = new EntityCommandBuffer(Allocator.TempJob);
             EntityCommandBuffer.ParallelWriter parallelEcb = ecb.AsParallelWriter();
 
             // 1. Параллельная джоба проверки поимки цели и истечения времени жизни
-            var catchJob = new CapsuleCatchAndLifetimeJob
+            if (!_lifetimeQuery.IsEmptyIgnoreFilter)
             {
-                TargetPos = targetTransform.Position,
-                DeltaTime = SystemAPI.Time.DeltaTime,
-                ecb = parallelEcb
-            };
-            state.Dependency = catchJob.ScheduleParallel(state.Dependency);
+                var catchJob = new CapsuleCatchAndLifetimeJob
+                {
+                    TargetEntity = targetEntity,
+                    TransformLookup = transformLookup,
+                    DeltaTime = SystemAPI.Time.DeltaTime,
+                    ecb = parallelEcb
+                };
+                state.Dependency = catchJob.ScheduleParallel(_lifetimeQuery, state.Dependency);
+            }
 
             // 2. Параллельная джоба удаления погибших сущностей (с активным DeadTag)
-            var deadCleanupJob = new DeadCapsuleDestroyJob
+            if (!_deadQuery.IsEmptyIgnoreFilter)
             {
-                ecb = parallelEcb
-            };
-            state.Dependency = deadCleanupJob.ScheduleParallel(_deadQuery, state.Dependency);
+                var deadCleanupJob = new DeadCapsuleDestroyJob
+                {
+                    ecb = parallelEcb
+                };
+                state.Dependency = deadCleanupJob.ScheduleParallel(_deadQuery, state.Dependency);
+            }
 
             // Дожидаемся завершения параллельных джобов перед воспроизведением команд удаления (слайд 6)
             state.Dependency.Complete();
@@ -68,11 +85,13 @@ namespace VisualProgramming.Capsules
 
     /// <summary>
     /// Параллельная джоба проверки дистанции до цели и времени жизни капсулы.
+    /// Считывает позицию цели потокобезопасно внутри джобы через [ReadOnly] ComponentLookup<LocalTransform>.
     /// </summary>
     [BurstCompile]
     public partial struct CapsuleCatchAndLifetimeJob : IJobEntity
     {
-        public float3 TargetPos;
+        public Entity TargetEntity;
+        [ReadOnly] public ComponentLookup<LocalTransform> TransformLookup;
         public float DeltaTime;
         public EntityCommandBuffer.ParallelWriter ecb;
 
@@ -85,13 +104,23 @@ namespace VisualProgramming.Capsules
         {
             lifetime.RemainingTime -= DeltaTime;
 
-            float3 capsulePos = transform.Position;
-            capsulePos.y = TargetPos.y;
-            float distanceToTarget = math.distance(capsulePos, TargetPos);
-
-            if (distanceToTarget < 0.8f || lifetime.RemainingTime <= 0f)
+            if (lifetime.RemainingTime <= 0f)
             {
                 ecb.DestroyEntity(chunkIndexInQuery, entity);
+                return;
+            }
+
+            if (TransformLookup.TryGetComponent(TargetEntity, out LocalTransform targetTransform))
+            {
+                float3 targetPos = targetTransform.Position;
+                float3 capsulePos = transform.Position;
+                capsulePos.y = targetPos.y;
+                float distanceToTarget = math.distance(capsulePos, targetPos);
+
+                if (distanceToTarget < 0.8f)
+                {
+                    ecb.DestroyEntity(chunkIndexInQuery, entity);
+                }
             }
         }
     }

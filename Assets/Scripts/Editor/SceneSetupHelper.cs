@@ -363,12 +363,9 @@ namespace VisualProgramming.Editor
             simGroup.SortSystems();
             waveGroup.SortSystems();
 
-            // Создаем синглтон буфера урона NativeList
+            // Создаем синглтон буфера урона NativeList (инициализируется системой CombatAttackQuerySystem в текущем процессе)
             Entity bufferEntity = em.CreateEntity();
-            em.AddComponentData(bufferEntity, new DamageBufferHolder
-            {
-                Damages = new Unity.Collections.NativeList<DamageEvent>(1024, Unity.Collections.Allocator.Persistent)
-            });
+            em.AddComponentData(bufferEntity, new DamageBufferHolder());
 
             // Создаем цель с маршрутом патрулирования, здоровьем и регенерацией
             Entity targetEntity = em.CreateEntity();
@@ -411,12 +408,6 @@ namespace VisualProgramming.Editor
 
             float targetHealthAfter = em.GetComponentData<HealthData>(targetEntity).Current;
             Debug.Log($"[Validation] Jobs Simulation completed 10 frames! Target Health after parallel capsule attacks & regen: {targetHealthAfter:F1}/500: OK");
-
-            var holder = em.GetComponentData<DamageBufferHolder>(bufferEntity);
-            if (holder.Damages.IsCreated)
-            {
-                holder.Damages.Dispose();
-            }
         }
 
         private static GameObject CreateAndSaveCapsulePrefab(

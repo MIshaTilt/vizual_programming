@@ -4,6 +4,7 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
+using Unity.Transforms;
 
 namespace VisualProgramming.Capsules
 {
@@ -18,10 +19,19 @@ namespace VisualProgramming.Capsules
     [BurstCompile]
     public partial struct CombatDamageHandlerSystem : ISystem
     {
+        private EntityQuery _attackersQuery;
+
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
             state.RequireForUpdate<DamageBufferHolder>();
+
+            _attackersQuery = SystemAPI.QueryBuilder()
+                .WithAll<LocalTransform, AttackerData>()
+                .WithDisabled<DeadTag>()
+                .Build();
+
+            state.RequireForUpdate(_attackersQuery);
         }
 
         [BurstCompile]

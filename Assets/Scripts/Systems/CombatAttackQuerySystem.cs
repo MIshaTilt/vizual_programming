@@ -17,6 +17,7 @@ namespace VisualProgramming.Capsules
     public partial struct CombatAttackQuerySystem : ISystem
     {
         private EntityQuery _attackersQuery;
+        private NativeList<DamageEvent> _runtimeDamages;
 
         [BurstCompile]
         public void OnCreate(ref SystemState state)
@@ -28,16 +29,29 @@ namespace VisualProgramming.Capsules
                 .WithDisabled<DeadTag>()
                 .Build();
 
-            state.RequireForUpdate(_attackersQuery);
+            // Аллоцируем NativeList в адресном пространстве текущего рантайм-мира,
+            // так как в Unity 6 SubScene запекается в отдельном процессе AssetImportWorker
+            _runtimeDamages = new NativeList<DamageEvent>(1024, Allocator.Persistent);
         }
 
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
             ref var holder = ref SystemAPI.GetSingletonRW<DamageBufferHolder>().ValueRW;
-            if (!holder.Damages.IsCreated)
+            holder.Damages = _runtimeDamages;
+
+            if (_attackersQuery.IsEmptyIgnoreFilter)
             {
-                holder.Damages = new NativeList<DamageEvent>(1024, Allocator.Persistent);
+                return;
+            }
+
+            // Гарантируем достаточную вместимость перед параллельным вызовом AddNoResize
+            int requiredCapacity = _attackersQuery.CalculateEntityCount() * 2 + 64;
+            if (_runtimeDamages.Capacity < requiredCapacity)
+            {
+                state.Dependency.Complete();
+                _runtimeDamages.Capacity = math.max(1024, requiredCapacity * 2);
+                holder.Damages = _runtimeDamages;
             }
 
             ComponentLookup<LocalTransform> transformLookup = SystemAPI.GetComponentLookup<LocalTransform>(true);
@@ -57,9 +71,10 @@ namespace VisualProgramming.Capsules
         public void OnDestroy(ref SystemState state)
         {
             // Освобождение неуправляемой памяти NativeList при уничтожении мира (слайд 9)
-            if (SystemAPI.TryGetSingleton<DamageBufferHolder>(out var holder) && holder.Damages.IsCreated)
+            state.Dependency.Complete();
+            if (_runtimeDamages.IsCreated)
             {
-                holder.Damages.Dispose();
+                _runtimeDamages.Dispose();
             }
         }
     }
