@@ -5,6 +5,11 @@ using Unity.Mathematics;
 
 namespace VisualProgramming.Capsules
 {
+    /// <summary>
+    /// Авторинг-компонент цели для запекания в Entity.
+    /// Поддерживает патрулирование по точкам через DynamicBuffer (слайды 5, 6 методички 2),
+    /// круговое движение, а также здоровье и регенерацию для системы урона на Jobs (методичка 3).
+    /// </summary>
     [DisallowMultipleComponent]
     public class TargetAuthoring : MonoBehaviour
     {
@@ -26,14 +31,33 @@ namespace VisualProgramming.Capsules
         public float Radius = 6f;
         public float Speed = 1f;
 
+        [Header("Target Health & Regeneration (Jobs Combat)")]
+        public float MaxHealth = 5000f;
+        public float HealthRegeneratedPerUpdate = 50f;
+
         public class TargetBaker : Baker<TargetAuthoring>
         {
             public override void Bake(TargetAuthoring authoring)
             {
                 Entity entity = GetEntity(TransformUsageFlags.Dynamic);
 
+                // Тег цели для системы позиционирования (слайд 9 методички 1)
                 AddComponent(entity, new TargetTag());
 
+                // Добавляем здоровье и регенерацию, чтобы капсулы могли параллельно атаковать цель
+                // через NativeList<DamageEvent> и IJob (слайды 7-10 методички 3)
+                AddComponent(entity, new HealthData
+                {
+                    Current = authoring.MaxHealth,
+                    Max = authoring.MaxHealth
+                });
+
+                AddComponent(entity, new RegenerationData
+                {
+                    HealthRegeneratedPerUpdate = authoring.HealthRegeneratedPerUpdate
+                });
+
+                // Патрулирование через DynamicBuffer (слайды 5, 6 методички 2)
                 if (authoring.EnableWaypointPatrol)
                 {
                     DynamicBuffer<WaypointElement> buffer = AddBuffer<WaypointElement>(entity);

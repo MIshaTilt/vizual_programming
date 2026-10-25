@@ -6,7 +6,14 @@ using Unity.Transforms;
 
 namespace VisualProgramming.Capsules
 {
+    /// <summary>
+    /// Система спавна волн капсул (слайд 10 методички 2, слайд 1 методички 3).
+    /// Находится в пользовательской группе WaveSpawnSystemGroup.
+    /// Согласно слайду 1 методички 3, система спавна намеренно остается последовательной (однопоточной),
+    /// так как она работает по единому таймеру и создает сущности раз в N секунд.
+    /// </summary>
     [UpdateInGroup(typeof(WaveSpawnSystemGroup))]
+    [UpdateBefore(typeof(RegenerationSystem))]
     [BurstCompile]
     public partial struct WaveSpawnerSystem : ISystem
     {
@@ -28,6 +35,7 @@ namespace VisualProgramming.Capsules
                 return;
             }
 
+            // Обращение к данным Blob через GetSingleton (слайд 5 методички 2)
             ref var wavesBlob = ref SystemAPI.GetSingleton<WavesHolder>().WavesReference.Value;
             if (spawnerState.CurrentWaveIndex >= wavesBlob.Waves.Length)
             {
@@ -36,7 +44,8 @@ namespace VisualProgramming.Capsules
             }
 
             ref var currentWave = ref wavesBlob.Waves[spawnerState.CurrentWaveIndex];
-            
+
+            // Поскольку WaveSpawnSystemGroup тикает 1 раз в секунду, прибавляем шаг 1 сек
             spawnerState.WaveTimer += 1.0f;
 
             if (spawnerState.WaveTimer < currentWave.WaitTimeBeforeWave)
@@ -44,12 +53,16 @@ namespace VisualProgramming.Capsules
                 return;
             }
 
+            // Время волны наступило — сбрасываем таймер
             spawnerState.WaveTimer = 0f;
 
+            // Обращение к держателю префабов через GetSingleton (слайд 8 методички 2)
             var prefabHolder = SystemAPI.GetSingleton<PrefabHolder>();
 
+            // Получаем генератор случайных чисел RandomHolder (слайд 7 методички 2)
             ref var randomHolder = ref SystemAPI.GetSingletonRW<RandomHolder>().ValueRW;
 
+            // Создание EntityCommandBuffer с аллокатором Temp (слайд 7 методички 2)
             EntityCommandBuffer ecb = new EntityCommandBuffer(Allocator.Temp);
 
             ref var enemiesArray = ref currentWave.Enemies;
@@ -134,6 +147,10 @@ namespace VisualProgramming.Capsules
                 }
             }
 
+            // Завершаем активные джобы перед структурными изменениями EntityManager
+            state.Dependency.Complete();
+
+            // Воспроизведение всех накопленных команд и освобождение памяти
             ecb.Playback(state.EntityManager);
             ecb.Dispose();
 

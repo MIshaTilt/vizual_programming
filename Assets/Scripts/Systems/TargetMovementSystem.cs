@@ -5,6 +5,11 @@ using Unity.Transforms;
 
 namespace VisualProgramming.Capsules
 {
+    /// <summary>
+    /// Параллельная система кругового движения цели (методички 1 и 3).
+    /// Переписана на IJobEntity с планированием через ScheduleParallel.
+    /// </summary>
+    [UpdateBefore(typeof(TargetUpdateSystem))]
     [BurstCompile]
     public partial struct TargetMovementSystem : ISystem
     {
@@ -17,20 +22,34 @@ namespace VisualProgramming.Capsules
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
-            double elapsedTime = SystemAPI.Time.ElapsedTime;
-
-            foreach (var (transform, movement) in 
-                SystemAPI.Query<RefRW<LocalTransform>, RefRO<TargetMovementData>>())
+            var job = new TargetCircularMovementJob
             {
-                float angle = (float)elapsedTime * movement.ValueRO.Speed;
-                float3 offset = new float3(
-                    math.cos(angle) * movement.ValueRO.Radius,
-                    0f,
-                    math.sin(angle) * movement.ValueRO.Radius
-                );
+                ElapsedTime = (float)SystemAPI.Time.ElapsedTime
+            };
 
-                transform.ValueRW.Position = movement.ValueRO.Center + offset;
-            }
+            state.Dependency = job.ScheduleParallel(state.Dependency);
+        }
+    }
+
+    /// <summary>
+    /// Параллельная джоба кругового перемещения вокруг центральной точки.
+    /// </summary>
+    [BurstCompile]
+    public partial struct TargetCircularMovementJob : IJobEntity
+    {
+        public float ElapsedTime;
+
+        [BurstCompile]
+        public void Execute(ref LocalTransform transform, in TargetMovementData movement)
+        {
+            float angle = ElapsedTime * movement.Speed;
+            float3 offset = new float3(
+                math.cos(angle) * movement.Radius,
+                0f,
+                math.sin(angle) * movement.Radius
+            );
+
+            transform.Position = movement.Center + offset;
         }
     }
 }

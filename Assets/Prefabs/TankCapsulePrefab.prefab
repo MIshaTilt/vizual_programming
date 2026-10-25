@@ -132,3 +132,6 @@ MonoBehaviour:
   StaminaDrainRate: 15
   StaminaRecoveryRate: 30
   MaxHealth: 180
+  HealthRegeneratedPerUpdate: 10
+  DamagePerSecond: 18
+  AttackRange: 4

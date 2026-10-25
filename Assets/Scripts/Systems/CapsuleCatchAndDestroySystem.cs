@@ -6,13 +6,24 @@ using Unity.Transforms;
 
 namespace VisualProgramming.Capsules
 {
+    /// <summary>
+    /// Параллельная система удаления Entity через EntityCommandBuffer.ParallelWriter
+    /// (задание 2 + оптимизация под Jobs из задания 3, слайды 5–6).
+    /// </summary>
+    [UpdateAfter(typeof(HealthSystem))]
     [BurstCompile]
     public partial struct CapsuleCatchAndDestroySystem : ISystem
     {
+        private EntityQuery _deadQuery;
+
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
             state.RequireForUpdate<TargetTag>();
+
+            _deadQuery = SystemAPI.QueryBuilder()
+                .WithAll<HealthData, DeadTag>()
+                .Build();
         }
 
         [BurstCompile]
@@ -29,40 +40,80 @@ namespace VisualProgramming.Capsules
                 return;
             }
 
-            float3 targetPos = targetTransform.Position;
-            float deltaTime = SystemAPI.Time.DeltaTime;
+            EntityCommandBuffer ecb = new EntityCommandBuffer(Allocator.TempJob);
+            EntityCommandBuffer.ParallelWriter parallelEcb = ecb.AsParallelWriter();
 
-            EntityCommandBuffer ecb = new EntityCommandBuffer(Allocator.Temp);
-
-            foreach (var (transform, lifetime, entity) in 
-                SystemAPI.Query<RefRO<LocalTransform>, RefRW<LifetimeData>>()
-                    .WithEntityAccess())
+            // 1. Параллельная джоба проверки поимки цели и истечения времени жизни
+            var catchJob = new CapsuleCatchAndLifetimeJob
             {
-                lifetime.ValueRW.RemainingTime -= deltaTime;
+                TargetPos = targetTransform.Position,
+                DeltaTime = SystemAPI.Time.DeltaTime,
+                ecb = parallelEcb
+            };
+            state.Dependency = catchJob.ScheduleParallel(state.Dependency);
 
-                float3 capsulePos = transform.ValueRO.Position;
-                capsulePos.y = targetPos.y;
-                float distanceToTarget = math.distance(capsulePos, targetPos);
-
-                if (distanceToTarget < 0.8f || lifetime.ValueRO.RemainingTime <= 0f)
-                {
-                    ecb.DestroyEntity(entity);
-                }
-            }
-
-            foreach (var (health, entity) in 
-                SystemAPI.Query<RefRO<HealthData>>()
-                    .WithAll<DeadTag>()
-                    .WithEntityAccess())
+            // 2. Параллельная джоба удаления погибших сущностей (с активным DeadTag)
+            var deadCleanupJob = new DeadCapsuleDestroyJob
             {
-                if (health.ValueRO.Current <= 0f)
-                {
-                    ecb.DestroyEntity(entity);
-                }
-            }
+                ecb = parallelEcb
+            };
+            state.Dependency = deadCleanupJob.ScheduleParallel(_deadQuery, state.Dependency);
 
+            // Дожидаемся завершения параллельных джобов перед воспроизведением команд удаления (слайд 6)
+            state.Dependency.Complete();
             ecb.Playback(state.EntityManager);
             ecb.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Параллельная джоба проверки дистанции до цели и времени жизни капсулы.
+    /// </summary>
+    [BurstCompile]
+    public partial struct CapsuleCatchAndLifetimeJob : IJobEntity
+    {
+        public float3 TargetPos;
+        public float DeltaTime;
+        public EntityCommandBuffer.ParallelWriter ecb;
+
+        [BurstCompile]
+        public void Execute(
+            [ChunkIndexInQuery] int chunkIndexInQuery,
+            Entity entity,
+            in LocalTransform transform,
+            ref LifetimeData lifetime)
+        {
+            lifetime.RemainingTime -= DeltaTime;
+
+            float3 capsulePos = transform.Position;
+            capsulePos.y = TargetPos.y;
+            float distanceToTarget = math.distance(capsulePos, TargetPos);
+
+            if (distanceToTarget < 0.8f || lifetime.RemainingTime <= 0f)
+            {
+                ecb.DestroyEntity(chunkIndexInQuery, entity);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Параллельная джоба уничтожения сущностей с включенным компонентом DeadTag.
+    /// </summary>
+    [BurstCompile]
+    public partial struct DeadCapsuleDestroyJob : IJobEntity
+    {
+        public EntityCommandBuffer.ParallelWriter ecb;
+
+        [BurstCompile]
+        public void Execute(
+            [ChunkIndexInQuery] int chunkIndexInQuery,
+            Entity entity,
+            in HealthData health)
+        {
+            if (health.Current <= 0f)
+            {
+                ecb.DestroyEntity(chunkIndexInQuery, entity);
+            }
         }
     }
 }

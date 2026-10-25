@@ -5,6 +5,11 @@ using Unity.Transforms;
 
 namespace VisualProgramming.Capsules
 {
+    /// <summary>
+    /// Параллельная система патрулирования по путевым точкам из DynamicBuffer (методички 2 и 3).
+    /// Использует IJobEntity для параллельного обхода маршрута из DynamicBuffer<WaypointElement>.
+    /// </summary>
+    [UpdateBefore(typeof(TargetUpdateSystem))]
     [BurstCompile]
     public partial struct TargetPatrolSystem : ISystem
     {
@@ -17,41 +22,58 @@ namespace VisualProgramming.Capsules
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
-            float deltaTime = SystemAPI.Time.DeltaTime;
-
-            foreach (var (transform, patrol, waypoints) in 
-                SystemAPI.Query<RefRW<LocalTransform>, RefRW<WaypointPatrolData>, DynamicBuffer<WaypointElement>>())
+            var job = new TargetPatrolJob
             {
-                if (waypoints.IsEmpty)
-                {
-                    continue;
-                }
+                DeltaTime = SystemAPI.Time.DeltaTime
+            };
 
-                int currentIndex = patrol.ValueRO.CurrentWaypointIndex;
-                if (currentIndex >= waypoints.Length)
-                {
-                    patrol.ValueRW.CurrentWaypointIndex = 0;
-                    currentIndex = 0;
-                }
+            state.Dependency = job.ScheduleParallel(state.Dependency);
+        }
+    }
 
-                float3 currentPos = transform.ValueRO.Position;
-                float3 targetWaypointPos = waypoints[currentIndex].Position;
-                targetWaypointPos.y = currentPos.y;
+    /// <summary>
+    /// Параллельная джоба перемещения по путевым точкам из DynamicBuffer<WaypointElement>.
+    /// </summary>
+    [BurstCompile]
+    public partial struct TargetPatrolJob : IJobEntity
+    {
+        public float DeltaTime;
 
-                float3 direction = targetWaypointPos - currentPos;
-                float distance = math.length(direction);
+        [BurstCompile]
+        public void Execute(
+            ref LocalTransform transform,
+            ref WaypointPatrolData patrol,
+            in DynamicBuffer<WaypointElement> waypoints)
+        {
+            if (waypoints.IsEmpty)
+            {
+                return;
+            }
 
-                if (distance <= patrol.ValueRO.ArriveDistance)
-                {
-                    patrol.ValueRW.CurrentWaypointIndex = (currentIndex + 1) % waypoints.Length;
-                }
-                else
-                {
-                    float3 dirNorm = math.normalize(direction);
-                    float step = math.min(patrol.ValueRO.Speed * deltaTime, distance);
-                    transform.ValueRW.Position += dirNorm * step;
-                    transform.ValueRW.Rotation = quaternion.LookRotationSafe(dirNorm, math.up());
-                }
+            int currentIndex = patrol.CurrentWaypointIndex;
+            if (currentIndex >= waypoints.Length)
+            {
+                patrol.CurrentWaypointIndex = 0;
+                currentIndex = 0;
+            }
+
+            float3 currentPos = transform.Position;
+            float3 targetWaypointPos = waypoints[currentIndex].Position;
+            targetWaypointPos.y = currentPos.y;
+
+            float3 direction = targetWaypointPos - currentPos;
+            float distance = math.length(direction);
+
+            if (distance <= patrol.ArriveDistance)
+            {
+                patrol.CurrentWaypointIndex = (currentIndex + 1) % waypoints.Length;
+            }
+            else
+            {
+                float3 dirNorm = math.normalize(direction);
+                float step = math.min(patrol.Speed * DeltaTime, distance);
+                transform.Position += dirNorm * step;
+                transform.Rotation = quaternion.LookRotationSafe(dirNorm, math.up());
             }
         }
     }
