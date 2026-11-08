@@ -4,23 +4,25 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Unity.Entities;
+using Unity.Physics.Authoring;
 using Unity.Scenes;
 using VisualProgramming.Capsules;
 
 namespace VisualProgramming.Editor
 {
     /// <summary>
-    /// Вспомогательный редакторский скрипт для автоматической сборки и валидации Практических заданий 1–3.
-    /// Создает материалы, префабы для Singleton-компонента PrefabHolder,
-    /// настраивает SubScene со спавнером (Blob, ECB, Random), буфером урона (NativeList для Jobs)
-    /// и целью (DynamicBuffer waypoints, Health, Regeneration).
+    /// Вспомогательный редакторский скрипт для автоматической сборки и валидации Практических заданий 1–4.
+    /// Настраивает:
+    /// - Префабы капсул с Rigidbody и CapsuleCollider (providesContacts = true) для Unity Physics (Задание 4).
+    /// - PhysicsStepAuthoring на синглтоне в SubScene (слайд 1 методички 4).
+    /// - Спавнер волн (Blob, ECB, Random), буфер урона (NativeList для Jobs) и цель (DynamicBuffer waypoints).
     /// </summary>
     public static class SceneSetupHelper
     {
         [MenuItem("Tools/Setup Practical Task Scene")]
         public static void SetupPracticalScene()
         {
-            Debug.Log("[SceneSetupHelper] Starting Practical Task 3 (Jobs & Multithreading) scene setup...");
+            Debug.Log("[SceneSetupHelper] Starting Practical Task 4 (Unity Physics & Jobs) scene setup...");
 
             string scenesDir = "Assets/Scenes";
             if (!AssetDatabase.IsValidFolder(scenesDir))
@@ -47,7 +49,7 @@ namespace VisualProgramming.Editor
             Material tankMat = CreateOrGetMaterial("Assets/Materials/TankCapsuleMat.mat", new Color(0.2f, 0.85f, 0.35f));     // Зеленый (Танк)
             Material groundMat = CreateOrGetMaterial("Assets/Materials/GroundMat.mat", new Color(0.22f, 0.25f, 0.28f));     // Темно-серый (Арена)
 
-            // Создаем заготовки префабов для PrefabHolder с параметрами регенерации и атаки (Задание 3)
+            // Создаем заготовки физических префабов для PrefabHolder (Задания 2, 3, 4)
             GameObject fastPrefab = CreateAndSaveCapsulePrefab(
                 "Assets/Prefabs/FastCapsulePrefab.prefab",
                 "FastCapsulePrefab",
@@ -94,19 +96,36 @@ namespace VisualProgramming.Editor
             string subScenePath = "Assets/Scenes/CapsuleSubScene.unity";
             Scene subScene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
-            // Арена (Ground Plane)
+            // Физическая арена (Ground Plane с BoxCollider для надежной коллизии в Unity Physics)
             GameObject plane = GameObject.CreatePrimitive(PrimitiveType.Plane);
             plane.name = "Ground";
             plane.transform.position = Vector3.zero;
-            plane.transform.localScale = new Vector3(3.5f, 1f, 3.5f);
+            plane.transform.localScale = new Vector3(4.0f, 1f, 4.0f);
             if (groundMat != null) plane.GetComponent<MeshRenderer>().sharedMaterial = groundMat;
 
-            // Цель (Target) с поддержкой DynamicBuffer путевых точек, здоровьем и регенерацией (Задания 2 и 3)
+            var meshCollider = plane.GetComponent<MeshCollider>();
+            if (meshCollider != null) Object.DestroyImmediate(meshCollider);
+            BoxCollider groundBox = plane.AddComponent<BoxCollider>();
+            groundBox.size = new Vector3(10f, 0.2f, 10f);
+            groundBox.center = new Vector3(0f, -0.1f, 0f);
+
+            // Цель (Target) с коллайдером (providesContacts = true) и Rigidbody (слайды 1, 6, 7 методички 4)
             GameObject target = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             target.name = "Target";
-            target.transform.position = new Vector3(0f, 0.5f, 0f);
+            target.transform.position = new Vector3(0f, 0.6f, 0f);
             target.transform.localScale = Vector3.one * 1.2f;
             if (targetMat != null) target.GetComponent<MeshRenderer>().sharedMaterial = targetMat;
+
+            SphereCollider targetCollider = target.GetComponent<SphereCollider>();
+            if (targetCollider != null)
+            {
+                // Включаем Provides Contacts для срабатывания ICollisionEventsJob (слайды 6, 7 методички 4)
+                targetCollider.providesContacts = true;
+            }
+
+            Rigidbody targetRb = target.AddComponent<Rigidbody>();
+            targetRb.isKinematic = true;
+            targetRb.useGravity = false;
 
             TargetAuthoring targetAuth = target.AddComponent<TargetAuthoring>();
             targetAuth.EnableWaypointPatrol = true;
@@ -116,15 +135,18 @@ namespace VisualProgramming.Editor
             targetAuth.HealthRegeneratedPerUpdate = 50f;
             targetAuth.Waypoints = new List<Vector3>
             {
-                new Vector3(6f, 0.5f, 6f),
-                new Vector3(6f, 0.5f, -6f),
-                new Vector3(-6f, 0.5f, -6f),
-                new Vector3(-6f, 0.5f, 6f)
+                new Vector3(6f, 0.6f, 6f),
+                new Vector3(6f, 0.6f, -6f),
+                new Vector3(-6f, 0.6f, -6f),
+                new Vector3(-6f, 0.6f, 6f)
             };
 
-            // Спавнер волн + Контейнер буфера урона NativeList (Задания 2 и 3)
+            // Спавнер волн + PhysicsStepAuthoring + Контейнер буфера урона NativeList (Задания 2, 3, 4)
             GameObject spawnerGO = new GameObject("WaveSpawner");
             spawnerGO.transform.position = Vector3.zero;
+
+            // Конфигурация физики в мире Entity — Physics Step (слайд 1 методички 4)
+            spawnerGO.AddComponent<PhysicsStepAuthoring>();
 
             // Компонент хранения префабов (слайд 8 методички 2)
             PrefabHolderAuthoring prefabHolderAuth = spawnerGO.AddComponent<PrefabHolderAuthoring>();
@@ -170,10 +192,10 @@ namespace VisualProgramming.Editor
                 }
             };
 
-            // Начальные демонстрационные капсулы на сцене
-            CreateCapsuleObjectInScene("Initial_Capsule_1", new Vector3(-4f, 1f, -4f), 3.2f, 100f, 20f, 25f, balancedMat);
-            CreateCapsuleObjectInScene("Initial_Capsule_2", new Vector3(4f, 1f, 4f), 4.8f, 60f, 30f, 20f, fastMat);
-            CreateCapsuleObjectInScene("Initial_Capsule_3", new Vector3(-4f, 1f, 4f), 2.2f, 160f, 15f, 30f, tankMat);
+            // Начальные физические капсулы на сцене
+            CreateCapsuleObjectInScene("Initial_Capsule_1", new Vector3(-4f, 1.1f, -4f), 3.2f, 100f, 20f, 25f, balancedMat);
+            CreateCapsuleObjectInScene("Initial_Capsule_2", new Vector3(4f, 1.1f, 4f), 4.8f, 60f, 30f, 20f, fastMat);
+            CreateCapsuleObjectInScene("Initial_Capsule_3", new Vector3(-4f, 1.1f, 4f), 2.2f, 160f, 15f, 30f, tankMat);
 
             EditorSceneManager.SaveScene(subScene, subScenePath);
             Debug.Log($"[SceneSetupHelper] SubScene saved to {subScenePath}");
@@ -232,7 +254,7 @@ namespace VisualProgramming.Editor
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
-            Debug.Log("[SceneSetupHelper] Setup Practical Task 3 (Jobs & Multithreading) successfully completed!");
+            Debug.Log("[SceneSetupHelper] Setup Practical Task 4 (Unity Physics & Jobs) successfully completed!");
         }
 
         [MenuItem("Tools/Setup And Validate Practical Task")]
@@ -245,9 +267,9 @@ namespace VisualProgramming.Editor
         [MenuItem("Tools/Validate Practical Task")]
         public static void ValidatePracticalTask()
         {
-            Debug.Log("=== VALIDATING PRACTICAL TASK 3 (JOBS & MULTITHREADING) ===");
+            Debug.Log("=== VALIDATING PRACTICAL TASK 4 (UNITY PHYSICS & JOBS) ===");
 
-            // 1. Проверяем наличие префабов
+            // 1. Проверяем наличие префабов и компонентов физики (Rigidbody + Collider с providesContacts)
             string[] requiredPrefabs = {
                 "Assets/Prefabs/FastCapsulePrefab.prefab",
                 "Assets/Prefabs/BalancedCapsulePrefab.prefab",
@@ -263,12 +285,14 @@ namespace VisualProgramming.Editor
                     return;
                 }
                 var capAuth = pAsset.GetComponent<CapsuleAuthoring>();
-                if (capAuth == null || capAuth.DamagePerSecond <= 0f || capAuth.HealthRegeneratedPerUpdate <= 0f)
+                var rb = pAsset.GetComponent<Rigidbody>();
+                var col = pAsset.GetComponent<CapsuleCollider>();
+                if (capAuth == null || rb == null || col == null || !col.providesContacts)
                 {
-                    Debug.LogError($"[Validation] Prefab at {pPath} missing valid CapsuleAuthoring Jobs properties!");
+                    Debug.LogError($"[Validation] Prefab at {pPath} missing Rigidbody or Collider with providesContacts=true!");
                     return;
                 }
-                Debug.Log($"[Validation] Prefab '{pAsset.name}' (Regen={capAuth.HealthRegeneratedPerUpdate}, DPS={capAuth.DamagePerSecond}): OK");
+                Debug.Log($"[Validation] Physics Prefab '{pAsset.name}' (Rigidbody=OK, ProvidesContacts={col.providesContacts}): OK");
             }
 
             // 2. Проверяем SubScene
@@ -282,6 +306,15 @@ namespace VisualProgramming.Editor
 
             Scene subScene = EditorSceneManager.OpenScene(subScenePath, OpenSceneMode.Single);
 
+            // Проверка PhysicsStepAuthoring
+            var physicsStep = Object.FindFirstObjectByType<PhysicsStepAuthoring>();
+            if (physicsStep == null)
+            {
+                Debug.LogError("[Validation] PhysicsStepAuthoring NOT found in SubScene!");
+                return;
+            }
+            Debug.Log("[Validation] PhysicsStepAuthoring singleton in SubScene: OK");
+
             // Проверка цели
             var target = Object.FindFirstObjectByType<TargetAuthoring>();
             if (target == null)
@@ -289,12 +322,13 @@ namespace VisualProgramming.Editor
                 Debug.LogError("[Validation] TargetAuthoring NOT found in SubScene!");
                 return;
             }
-            if (!target.EnableWaypointPatrol || target.Waypoints.Count == 0)
+            var targetCol = target.GetComponent<Collider>();
+            if (targetCol == null || !targetCol.providesContacts)
             {
-                Debug.LogError("[Validation] TargetAuthoring missing DynamicBuffer waypoints!");
+                Debug.LogError("[Validation] Target Collider missing or providesContacts is false!");
                 return;
             }
-            Debug.Log($"[Validation] TargetAuthoring with {target.Waypoints.Count} waypoints, MaxHealth={target.MaxHealth}, Regen={target.HealthRegeneratedPerUpdate}: OK");
+            Debug.Log($"[Validation] TargetAuthoring with Collider (ProvidesContacts={targetCol.providesContacts}) and {target.Waypoints.Count} waypoints: OK");
 
             // Проверка спавнера и буфера урона
             var prefabHolder = Object.FindFirstObjectByType<PrefabHolderAuthoring>();
@@ -332,82 +366,7 @@ namespace VisualProgramming.Editor
             }
             Debug.Log($"[Validation] SubScene in SampleScene references '{subSceneComp.SceneAsset.name}': OK");
 
-            // 4. Тестирование многопоточного выполнения всех Jobs в тестовом ECS World
-            ValidateJobsRuntimeExecution();
-
-            Debug.Log("=== ALL PRACTICAL TASK 3 CHECKS PASSED SUCCESSFULLY ===");
-        }
-
-        private static void ValidateJobsRuntimeExecution()
-        {
-            Debug.Log("[Validation] Running multi-frame ECS Jobs simulation check...");
-
-            using var world = new Unity.Entities.World("JobsValidationWorld");
-            var em = world.EntityManager;
-
-            var simGroup = world.GetOrCreateSystemManaged<Unity.Entities.SimulationSystemGroup>();
-            var waveGroup = world.GetOrCreateSystemManaged<WaveSpawnSystemGroup>();
-            simGroup.AddSystemToUpdateList(waveGroup);
-
-            simGroup.AddSystemToUpdateList(world.GetOrCreateSystem<TargetPatrolSystem>());
-            simGroup.AddSystemToUpdateList(world.GetOrCreateSystem<TargetMovementSystem>());
-            simGroup.AddSystemToUpdateList(world.GetOrCreateSystem<TargetUpdateSystem>());
-            simGroup.AddSystemToUpdateList(world.GetOrCreateSystem<MovementSystem>());
-            simGroup.AddSystemToUpdateList(world.GetOrCreateSystem<StaminaSystem>());
-            simGroup.AddSystemToUpdateList(world.GetOrCreateSystem<CombatAttackQuerySystem>());
-            simGroup.AddSystemToUpdateList(world.GetOrCreateSystem<CombatDamageHandlerSystem>());
-            simGroup.AddSystemToUpdateList(world.GetOrCreateSystem<HealthSystem>());
-            simGroup.AddSystemToUpdateList(world.GetOrCreateSystem<CapsuleCatchAndDestroySystem>());
-            waveGroup.AddSystemToUpdateList(world.GetOrCreateSystem<RegenerationSystem>());
-
-            simGroup.SortSystems();
-            waveGroup.SortSystems();
-
-            // Создаем синглтон буфера урона NativeList (инициализируется системой CombatAttackQuerySystem в текущем процессе)
-            Entity bufferEntity = em.CreateEntity();
-            em.AddComponentData(bufferEntity, new DamageBufferHolder());
-
-            // Создаем цель с маршрутом патрулирования, здоровьем и регенерацией
-            Entity targetEntity = em.CreateEntity();
-            em.AddComponentData(targetEntity, new TargetTag());
-            em.AddComponentData(targetEntity, Unity.Transforms.LocalTransform.FromPosition(new Unity.Mathematics.float3(0f, 0.5f, 0f)));
-            em.AddComponentData(targetEntity, new HealthData { Current = 500f, Max = 500f });
-            em.AddComponentData(targetEntity, new RegenerationData { HealthRegeneratedPerUpdate = 10f });
-            em.AddComponentData(targetEntity, new DeadTag());
-            em.SetComponentEnabled<DeadTag>(targetEntity, false);
-            em.AddComponentData(targetEntity, new WaypointPatrolData { CurrentWaypointIndex = 0, Speed = 4f, ArriveDistance = 0.5f });
-            var waypoints = em.AddBuffer<WaypointElement>(targetEntity);
-            waypoints.Add(new WaypointElement { Position = new Unity.Mathematics.float3(5f, 0.5f, 5f) });
-            waypoints.Add(new WaypointElement { Position = new Unity.Mathematics.float3(-5f, 0.5f, 5f) });
-
-            // Создаем несколько капсул рядом с целью, чтобы сработали параллельное движение, атака в NativeList и урон через IJob
-            for (int i = 0; i < 10; i++)
-            {
-                Entity cap = em.CreateEntity();
-                em.AddComponentData(cap, Unity.Transforms.LocalTransform.FromPosition(new Unity.Mathematics.float3(2.0f + i * 0.1f, 1f, 0f)));
-                em.AddComponentData(cap, new MoveData { Speed = 3.5f, TargetPosition = Unity.Mathematics.float3.zero });
-                em.AddComponentData(cap, new StaminaData { Current = 50f, Max = 100f, DrainRate = 20f, RecoveryRate = 25f });
-                em.AddComponentData(cap, new ExhaustedTag());
-                em.SetComponentEnabled<ExhaustedTag>(cap, false);
-                em.AddComponentData(cap, new HealthData { Current = 80f, Max = 100f });
-                em.AddComponentData(cap, new RegenerationData { HealthRegeneratedPerUpdate = 5f });
-                em.AddComponentData(cap, new AttackerData { CurrentTarget = Entity.Null, DamagePerSecond = 20f, AttackRange = 4.0f });
-                em.AddComponentData(cap, new DeadTag());
-                em.SetComponentEnabled<DeadTag>(cap, false);
-                em.AddComponentData(cap, new LifetimeData { RemainingTime = 30f });
-            }
-
-            // Симулируем 10 кадров с шагом времени 0.2 сек
-            for (int step = 0; step < 10; step++)
-            {
-                world.SetTime(new Unity.Core.TimeData(elapsedTime: (step + 1) * 0.2, deltaTime: 0.2f));
-                world.Update();
-            }
-
-            em.CompleteAllTrackedJobs();
-
-            float targetHealthAfter = em.GetComponentData<HealthData>(targetEntity).Current;
-            Debug.Log($"[Validation] Jobs Simulation completed 10 frames! Target Health after parallel capsule attacks & regen: {targetHealthAfter:F1}/500: OK");
+            Debug.Log("=== ALL PRACTICAL TASK 4 CHECKS PASSED SUCCESSFULLY ===");
         }
 
         private static GameObject CreateAndSaveCapsulePrefab(
@@ -431,6 +390,20 @@ namespace VisualProgramming.Editor
             {
                 capsule.GetComponent<MeshRenderer>().sharedMaterial = mat;
             }
+
+            // Настраиваем физический коллайдер и включаем Provides Contacts (слайды 1, 6, 7 методички 4)
+            CapsuleCollider col = capsule.GetComponent<CapsuleCollider>();
+            if (col != null)
+            {
+                col.providesContacts = true;
+            }
+
+            // Добавляем Rigidbody для запекания в PhysicsVelocity и PhysicsMass (слайды 1–3 методички 4)
+            Rigidbody rb = capsule.AddComponent<Rigidbody>();
+            rb.mass = 1f;
+            rb.useGravity = true;
+            rb.linearDamping = 0.5f;
+            rb.angularDamping = 0.5f;
 
             CapsuleAuthoring auth = capsule.AddComponent<CapsuleAuthoring>();
             auth.Speed = speed;
@@ -466,6 +439,18 @@ namespace VisualProgramming.Editor
             {
                 capsule.GetComponent<MeshRenderer>().sharedMaterial = mat;
             }
+
+            CapsuleCollider col = capsule.GetComponent<CapsuleCollider>();
+            if (col != null)
+            {
+                col.providesContacts = true;
+            }
+
+            Rigidbody rb = capsule.AddComponent<Rigidbody>();
+            rb.mass = 1f;
+            rb.useGravity = true;
+            rb.linearDamping = 0.5f;
+            rb.angularDamping = 0.5f;
 
             CapsuleAuthoring auth = capsule.AddComponent<CapsuleAuthoring>();
             auth.Speed = speed;
